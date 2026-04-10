@@ -65,7 +65,7 @@ graph TD
     TS -->|Full Context| Bot
     
     %% Flow to Market
-    Bot -->|Calculates Intent| Ord
+    Bot -->|Decide What to Order| Ord
     Ord -->|Submission| Market
     
     %% Feedback Loop
@@ -73,8 +73,9 @@ graph TD
     OT -.->|Updates| Pos
 
     %% Styling
-    style TS fill:#f9f,stroke:#333,stroke-width:2px
-    style Bot fill:#bbf,stroke:#333,stroke-width:2px
-    style Market fill:#dfd,stroke:#333
-    style Env fill:#fff2e6,stroke:#cc6600
+    style TS fill:#940394,stroke:#333,stroke-width:2px
+    style Bot fill:#c90241,stroke:#333,stroke-width:2px
+    style Market fill:#0a6302,stroke:#333
+    style Env fill:#028bbd,stroke:#cc6600
 ```
+This is all taken from the definition of datamodel.py as is done [here](https://imc-prosperity.notion.site/writing-an-algorithm-in-python) in Appendix B. It should explain the basic game loop. 
