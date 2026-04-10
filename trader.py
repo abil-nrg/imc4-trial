@@ -1,10 +1,19 @@
-from datamodel import OrderDepth, TradingState, Order
+"""
+trader.py
+Defines the central trader class
+began with the default template on https://imc-prosperity.notion.site/writing-an-algorithm-in-python
+"""
+
+from datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List
 import string
 
 class Trader:
 
-    def bid(self):
+    def bid(self): 
+        """
+        For ROUND 2 ONLY
+        """
         return 15
     
     def run(self, state: TradingState):
@@ -37,10 +46,6 @@ class Trader:
             
             result[product] = orders
     
-        # String value holding Trader state data required. 
-        # It will be delivered as TradingState.traderData on next execution.
-        traderData = "SAMPLE" 
-        
-        # Sample conversion request. Check more details below. 
-        conversions = 1
+        traderData = ""  # No state needed - we check position directly
+        conversions = 0
         return result, conversions, traderData
