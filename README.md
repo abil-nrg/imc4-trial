@@ -8,7 +8,11 @@ python3 -m venv venv
 source venv/bin/activate
 pip3 install -m requirements.txt
 ```
-  
+To run your amazing algorithm, we are using [this]() backtester. Follow the instructions to download it, and then run it by 
+```bash
+prosperity4btx trader.py n
+```
+for round $n$.
 ## datamodel.py
 To better understand the data structure of TradeState class, we can utilize a diagram!
 ```mermaid
