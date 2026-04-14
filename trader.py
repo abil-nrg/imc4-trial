@@ -66,7 +66,7 @@ class Trader:
             "TOMATOES": 80
         }
         POS_DEFAULT = 80
-        WINDOW_SIZE = 100
+        WINDOW_SIZE = 20
         
         #look thru order book
         for product in state.order_depths:

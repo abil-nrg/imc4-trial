@@ -13,7 +13,12 @@ To run your amazing algorithm, we are using [this]() backtester. Follow the inst
 prosperity4btx trader.py n
 ```
 for round $n$.
-## architectural plans
+To analyse your algorithm, run 
+```bash
+cd dashboard
+streamlit run app.py
+```
+Have fun!
 
 ## datamodel.py
 To better understand the data structure of TradeState class, we can utilize a diagram!
