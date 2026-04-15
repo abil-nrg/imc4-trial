@@ -29,25 +29,21 @@ class Trader:
         return prices - trend_line
 
     def detrend_sma(self, prices: np.ndarray, window: int) -> np.ndarray:
-        """
-        Subtract a simple moving average (SMA) of the given window length.
-        For each index i, residual[i] = price[i] - SMA(price[max(0,i-window+1):i+1]).
-        For i < window-1, SMA is the expanding mean of all prices up to i.
-        """
-        residuals = np.zeros_like(prices)
-        for i in range(len(prices)):
-            start = max(0, i - window + 1)
-            sma = np.mean(prices[start:i+1])
-            residuals[i] = prices[i] - sma
+        """Standard rolling SMA detrending."""
+        if len(prices) < window:
+            return np.zeros_like(prices)
+        
+        # Calculate rolling mean using cumsum for speed
+        cumsum = np.cumsum(prices)
+        sma = (cumsum[window:] - cumsum[:-window]) / window
+        
+        residuals = prices[window:] - sma
         return residuals
 
     def generate_analytics(self, product, history_dict, window, lag=1):
         """
         Compute analytics on detrended price series.
-        For product 'ASH' (ASH_COATED_OSMIUM): remove SMA (window length = window).
-        For others: remove linear trend.
-        Returns z‑score, standard deviation of residuals, autocorrelation of residuals,
-        and the raw trend slope (for reference only, not used as a filter).
+        Autocorr is now calculated on the returns (differences) of residuals.
         """
         prices = history_dict.get(product, [])
         report = {
@@ -57,47 +53,41 @@ class Trader:
             "trend_slope": 0.0,
         }
 
-        if len(prices) < window + lag:
+        if len(prices) < window + lag + 1: # Added +1 for return calculation
             return report
 
-        price_arr = np.array(prices[-window:])
-        t = np.arange(len(price_arr))
-
+        price_arr = np.array(prices[-(window * 2):])
+        
         # ----- Detrend based on product -----
         if product == "ASH_COATED_OSMIUM":
-            # Proper SMA detrending (fixes problem #1)
             residuals = self.detrend_sma(price_arr, window)
         else:
-            # Linear detrending
             residuals = self.detrend_linear(price_arr)
 
-        # Statistics on residuals
+        # Statistics on residuals for Z-score
         mean_resid = np.mean(residuals)
         std_resid = np.std(residuals)
+        z = (residuals[-1] - mean_resid) / std_resid if std_resid > 1e-8 else 0.0
 
-        if std_resid > 1e-8:
-            z = (residuals[-1] - mean_resid) / std_resid
-        else:
-            z = 0.0
+        # ----- Autocorrelation of Residual RETURNS -----
+        res_returns = np.diff(residuals)
 
-        # ----- Autocorrelation of residuals (fixes problem #3) -----
-        if len(residuals) > lag:
-            r1 = residuals[:-lag]
-            r2 = residuals[lag:]
-            if np.std(r1) > 1e-8 and np.std(r2) > 1e-8:
-                autocorr = np.corrcoef(r1, r2)[0, 1]
+        if len(res_returns) > lag:
+            r_t = res_returns[:-lag]
+            r_lagged = res_returns[lag:]
+            
+            if np.std(r_t) > 1e-8 and np.std(r_lagged) > 1e-8:
+                # Correlation between return at T and return at T-lag
+                autocorr = np.corrcoef(r_t, r_lagged)[0, 1]
             else:
                 autocorr = 0.0
         else:
             autocorr = 0.0
 
-        # ----- Raw trend slope (kept for logging, not used as filter) -----
-        slope = np.polyfit(t, price_arr, 1)[0]
-
         report["zscore"] = float(z)
         report["std"] = float(std_resid)
         report["autocorr"] = float(autocorr)
-        report["trend_slope"] = float(slope)
+        report["trend_slope"] = float(np.polyfit(np.arange(len(price_arr)), price_arr, 1)[0])
 
         return report
 
@@ -117,16 +107,18 @@ class Trader:
         POSITION_LIMITS = {
             "EMERALDS": 80,
             "TOMATOES": 80,
-            "ASH": 80,
-            "PEPPER": 80,
+            "ASH_COATED_OSMIUM": 80,
+            "INTARIAN_PEPPER_ROOT": 80,
         }
         POS_DEFAULT = 80
-        WINDOW_SIZE = 500
+        WINDOW_SIZE = 250
         MAX_HISTORY = 1000
 
-        Z_ENTRY = 1.0
-        MAX_SPREAD = 20
-        MAX_EXPECTED_Z = 2.0
+        Z_ENTRY = 0
+        MAX_SPREAD = 100
+        MAX_EXPECTED_Z = 2
+        
+        PEPPER_BUY_AND_HOLD = True 
 
         # ===== LOOP PRODUCTS =====
         for product in state.order_depths:
@@ -149,6 +141,18 @@ class Trader:
             best_bid, bid_vol = buy_orders[0]
             mid_price = (best_ask + best_bid) / 2
 
+            # ===== BUY AND HOLD BYPASS =====
+            if product == "INTARIAN_PEPPER_ROOT" and PEPPER_BUY_AND_HOLD:
+                current_pos = state.position.get(product, 0)
+                limit = POSITION_LIMITS.get(product, POS_DEFAULT)
+                
+                if current_pos < limit:
+                    buy_qty = limit - current_pos
+                    orders.append(Order(product, int(best_ask), int(buy_qty)))
+                    
+                result[product] = orders
+                continue  # Skip all analytics and mean-reversion logic for this product
+
             # ===== UPDATE HISTORY =====
             data["history"][product].append(mid_price)
             data["history"][product] = data["history"][product][-MAX_HISTORY:]
@@ -164,29 +168,28 @@ class Trader:
             spread = best_ask - best_bid
 
             # ===== FILTERS =====
-            if std == 0:                     # Not enough data
-                result[product] = orders
-                continue
 
             if spread > MAX_SPREAD:          # Spread filter
                 result[product] = orders
+                print(f"spread no {spread}")
                 continue
 
             if abs(z) < Z_ENTRY:             # Weak signal
                 result[product] = orders
+                print(f"z no {z}")
                 continue
 
             # Mean reversion must exist on detrended residuals 
             if autocorr > -0.1:
                 result[product] = orders
+                print(f"auto no {autocorr}")
                 continue
 
             # ===== POSITION SIZING =====
             # Map Z‑score linearly to a fraction of the limit, capped at ±limit
             target_frac = np.clip(z / MAX_EXPECTED_Z, -1.0, 1.0)
-            target_pos = int(target_frac * limit)
+            target_pos = int(-target_frac * limit)
             delta = target_pos - current_pos
-
             # ===== PASSIVE PRICES =====
             if spread > 1:
                 buy_price = best_bid + 1

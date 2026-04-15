@@ -16,15 +16,45 @@ st.set_page_config(page_title="IMC Analytics Pro", layout="wide")
 # --- DATA LOADING ---
 LOG_DIR = Path(__file__).parent.parent / "backtests"
 
+# --- DATA LOADING & CUMULATIVE PNL CALCULATION ---
 @st.cache_data(show_spinner=False)
 def get_backtest_data(file_path, mtime):
-    # Using the parse function from your environment
     act_df, trade_df, _ = parse(file_path)
+    
     if act_df is not None and not act_df.empty:
-        act_df = act_df.copy()
+        # 1. Ensure 'product' is a column (in case parse() put it in the index)
+        if 'product' not in act_df.columns:
+            act_df = act_df.reset_index()
+            
+        # 2. Sort to ensure chronological order
+        act_df = act_df.sort_values(['product', 'day', 'timestamp'])
+
+        # 3. Calculate the total PnL reached at the end of each day
+        day_ends = act_df.groupby(['product', 'day'])['profit_and_loss'].last().reset_index()
+        
+        # 4. Calculate the cumulative offset for the NEXT day
+        # We shift by 1 so Day 1 gets Day 0's closing PnL, etc.
+        day_ends['offset'] = day_ends.groupby('product')['profit_and_loss'].cumsum()
+        day_ends['day'] = day_ends['day'] + 1 
+        
+        # 5. Merge the offsets back into the main data
+        # We only need the product, the shifted day, and the calculated offset
+        act_df = act_df.merge(
+            day_ends[['product', 'day', 'offset']], 
+            on=['product', 'day'], 
+            how='left'
+        )
+        
+        # 6. Apply offset and cleanup
+        act_df['offset'] = act_df['offset'].fillna(0)
+        act_df['profit_and_loss'] = act_df['profit_and_loss'] + act_df['offset']
+        act_df.drop(columns=['offset'], inplace=True)
+
+        # 7. Add standard technical columns
         if 'ask_price_1' in act_df.columns and 'bid_price_1' in act_df.columns:
             act_df['spread'] = act_df['ask_price_1'] - act_df['bid_price_1']
             act_df['spread_pct'] = act_df['spread'] / act_df['mid_price']
+            
     return act_df, trade_df
 
 # --- RISK METRICS FUNCTIONS ---
